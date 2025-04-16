@@ -32,6 +32,7 @@ class SearchableDropdown<T> extends StatefulWidget {
     bool isDialogExpanded = true,
     bool hasTrailingClearIcon = true,
     double? dialogOffset,
+    bool autofocusSearch = true
   }) : this._(
           key: key,
           hintText: hintText,
@@ -55,6 +56,7 @@ class SearchableDropdown<T> extends StatefulWidget {
           isDialogExpanded: isDialogExpanded,
           hasTrailingClearIcon: hasTrailingClearIcon,
           dialogOffset: dialogOffset,
+          autofocusSearch: autofocusSearch,
         );
 
   const SearchableDropdown.paginated({
@@ -86,6 +88,7 @@ class SearchableDropdown<T> extends StatefulWidget {
     bool hasTrailingClearIcon = true,
     SearchableDropdownMenuItem<T>? initialValue,
     double? dialogOffset,
+    bool autofocusSearch = true,
   }) : this._(
           key: key,
           controller: controller,
@@ -111,6 +114,7 @@ class SearchableDropdown<T> extends StatefulWidget {
           hasTrailingClearIcon: hasTrailingClearIcon,
           initialFutureValue: initialValue,
           dialogOffset: dialogOffset,
+          autofocusSearch: autofocusSearch
         );
 
   const SearchableDropdown.future({
@@ -138,6 +142,7 @@ class SearchableDropdown<T> extends StatefulWidget {
     bool hasTrailingClearIcon = true,
     SearchableDropdownMenuItem<T>? initialValue,
     double? dialogOffset,
+    bool autofocusSearch = true,
   }) : this._(
           futureRequest: futureRequest,
           key: key,
@@ -162,6 +167,7 @@ class SearchableDropdown<T> extends StatefulWidget {
           hasTrailingClearIcon: hasTrailingClearIcon,
           initialFutureValue: initialValue,
           dialogOffset: dialogOffset,
+          autofocusSearch: autofocusSearch,
         );
 
   const SearchableDropdown._({
@@ -192,6 +198,7 @@ class SearchableDropdown<T> extends StatefulWidget {
     this.isDialogExpanded = true,
     this.hasTrailingClearIcon = true,
     this.dialogOffset,
+    this.autofocusSearch = true,
   });
 
   //Is dropdown enabled
@@ -271,6 +278,9 @@ class SearchableDropdown<T> extends StatefulWidget {
 
   /// Background decoration of dropdown, i.e. with this you can wrap dropdown with Card.
   final Widget Function(Widget child)? backgroundDecoration;
+
+  /// Autofocus search bar when dropdown is opened.
+  final bool autofocusSearch;
 
   @override
   State<SearchableDropdown<T>> createState() => _SearchableDropdownState<T>();
@@ -366,6 +376,7 @@ class _DropDown<T> extends StatelessWidget {
     this.searchHintText,
     this.changeCompletionDelay,
     this.hasTrailingClearIcon = true,
+    this.autofocusSearch = true,
   });
 
   final bool isEnabled;
@@ -391,6 +402,7 @@ class _DropDown<T> extends StatelessWidget {
   final Widget? leadingIcon;
   final Widget? hintText;
   final Widget? noRecordText;
+  final bool autofocusSearch;
 
   @override
   Widget build(BuildContext context) {
@@ -528,6 +540,7 @@ class _DropDown<T> extends StatelessWidget {
                   paginatedRequest: paginatedRequest,
                   searchHintText: searchHintText,
                   changeCompletionDelay: changeCompletionDelay,
+                  autofocusSearch: autofocusSearch,
                 ),
               ),
             ],
@@ -575,6 +588,7 @@ class _DropDownCard<T> extends StatelessWidget {
     this.onChanged,
     this.noRecordText,
     this.changeCompletionDelay,
+    this.autofocusSearch = true,
   });
 
   final bool isReversed;
@@ -587,6 +601,7 @@ class _DropDownCard<T> extends StatelessWidget {
   final String? searchHintText;
   final void Function(T? value)? onChanged;
   final Widget? noRecordText;
+  final bool autofocusSearch;
 
   @override
   Widget build(BuildContext context) {
@@ -611,6 +626,7 @@ class _DropDownCard<T> extends StatelessWidget {
                     controller: controller,
                     searchHintText: searchHintText,
                     changeCompletionDelay: changeCompletionDelay,
+                    autofocus: autofocusSearch,
                   ),
                   Flexible(
                     child: _DropDownListView(
@@ -631,33 +647,63 @@ class _DropDownCard<T> extends StatelessWidget {
   }
 }
 
-class _DropDownSearchBar<T> extends StatelessWidget {
+class _DropDownSearchBar<T> extends StatefulWidget {
   const _DropDownSearchBar({
     required this.controller,
     this.searchHintText,
     this.changeCompletionDelay,
+    this.autofocus = false, // NEW: Added parameter
   });
+
   final Duration? changeCompletionDelay;
   final SearchableDropdownController<T> controller;
   final String? searchHintText;
+  final bool autofocus; // NEW: Autofocus property
+
+  @override
+  State<_DropDownSearchBar<T>> createState() => _DropDownSearchBarState<T>();
+}
+
+class _DropDownSearchBarState<T> extends State<_DropDownSearchBar<T>> {
+  late FocusNode _focusNode;
+
+  @override
+  void initState() {
+    super.initState();
+    _focusNode = FocusNode();
+    if (widget.autofocus) {
+      // Focus after the dialog is fully built
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (_focusNode.hasFocus) return;
+        _focusNode.requestFocus();
+      });
+    }
+  }
+
+  @override
+  void dispose() {
+    _focusNode.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
     return Padding(
       padding: const EdgeInsets.all(8),
       child: CustomSearchBar(
+        focusNode: _focusNode, // Pass focus node
         changeCompletionDelay:
-            changeCompletionDelay ?? const Duration(milliseconds: 200),
-        hintText: searchHintText ?? 'Search',
+            widget.changeCompletionDelay ?? const Duration(milliseconds: 200),
+        hintText: widget.searchHintText ?? 'Search',
         isOutlined: true,
         leadingIcon: const Icon(Icons.search, size: 24),
         onChangeComplete: (value) {
-          controller.searchText = value;
-          if (controller.items != null) {
-            controller.fillSearchedList(value);
+          widget.controller.searchText = value;
+          if (widget.controller.items != null) {
+            widget.controller.fillSearchedList(value);
             return;
           }
-          controller.getItemsWithPaginatedRequest(
+          widget.controller.getItemsWithPaginatedRequest(
             key: value == '' ? null : value,
             page: 1,
             isNewSearch: true,
@@ -667,7 +713,6 @@ class _DropDownSearchBar<T> extends StatelessWidget {
     );
   }
 }
-
 class _DropDownListView<T> extends StatefulWidget {
   const _DropDownListView({
     required this.dropdownController,
