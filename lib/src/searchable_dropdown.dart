@@ -608,14 +608,6 @@ class _DropDownCardState<T> extends State<_DropDownCard<T>> { // State class
   @override
   void initState() {
     super.initState();
-    // Request focus for the card after the frame renders if search isn't autofocusing
-    // Or maybe always request focus here to ensure it *can* receive key events? Test needed.
-    // WidgetsBinding.instance.addPostFrameCallback((_) {
-    //   if (!widget.autofocusSearch) { // Only if search bar doesn't autofocus
-    //      FocusScope.of(context).requestFocus(_cardFocusNode);
-    //   }
-    // });
-
     // Listen to list changes to reset highlight if list becomes empty/null
      final listListenable = widget.paginatedRequest != null
         ? widget.controller.paginatedItemList
@@ -635,7 +627,7 @@ class _DropDownCardState<T> extends State<_DropDownCard<T>> { // State class
            _currentItemCount = newCount;
         });
          // Reset highlight if list changes significantly (e.g., search)
-        _highlightedIndex.value = -1;
+        // _highlightedIndex.value = -1;
      }
   }
 
@@ -882,8 +874,6 @@ class _DropDownSearchBarWrapperState<T> extends State<_DropDownSearchBarWrapper<
           }
       });
    }
-   // --- End Debounced Search Logic ---
-
 
   // --- Key Event Handling ---
   KeyEventResult _handleKeyEvent(FocusNode node, KeyEvent event) {
@@ -1139,19 +1129,11 @@ class _DropDownListViewState<T> extends State<_DropDownListView<T>> {
           );
         }
 
-        // Update the item count in the parent state if needed (though listener does this now)
-        // WidgetsBinding.instance.addPostFrameCallback((_) {
-        //    if (mounted) {
-        //       (context.findAncestorStateOfType<_DropDownCardState<T>>() as _DropDownCardState<T>?)?._updateItemCount(itemList.length);
-        //    }
-        // });
-
-
         return Scrollbar(
           thumbVisibility: true,
-          controller: widget.scrollController, // Use passed-in controller
+          controller: widget.scrollController,
           child: ListView.builder(
-            controller: widget.scrollController, // Use passed-in controller
+            controller: widget.scrollController,
             padding: listViewPadding(isReversed: widget.isReversed, isPaginated: widget.paginatedRequest != null), // Pass pagination flag
             itemCount: itemList.length + (widget.paginatedRequest != null ? 1: 0), // Add 1 for loading indicator only if paginated
             shrinkWrap: true,
@@ -1162,7 +1144,7 @@ class _DropDownListViewState<T> extends State<_DropDownListView<T>> {
                   return ValueListenableBuilder<SearchableDropdownStatus>(
                       valueListenable: widget.dropdownController.status,
                       builder: (context, state, child) {
-                          return (state == SearchableDropdownStatus.busy && itemList.isNotEmpty) // Show only when loading more
+                          return (state == SearchableDropdownStatus.busy && itemList.isNotEmpty) 
                               ? const Center(child: Padding(
                                   padding: EdgeInsets.symmetric(vertical: 8.0),
                                   child: CircularProgressIndicator.adaptive()
