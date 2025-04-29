@@ -1,12 +1,26 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:searchable_paginated_dropdown/src/extensions/context_extension.dart';
+import 'package:searchable_paginated_dropdown/src/extensions/custom_global_key_extension.dart';
 
-import 'package:searchable_paginated_dropdown/src/extensions/extensions.dart';
 import 'package:searchable_paginated_dropdown/src/model/searchable_dropdown_menu_item.dart';
 import 'package:searchable_paginated_dropdown/src/searchable_dropdown_controller.dart';
 import 'package:searchable_paginated_dropdown/src/utils/custom_inkwell.dart';
 import 'package:searchable_paginated_dropdown/src/utils/custom_search_bar.dart';
+
+class NavigateDownIntent extends Intent {
+  const NavigateDownIntent();
+}
+
+class NavigateUpIntent extends Intent {
+  const NavigateUpIntent();
+}
+
+class SelectItemIntent extends Intent {
+  const SelectItemIntent();
+}
 
 class SearchableDropdown<T> extends StatefulWidget {
   const SearchableDropdown({
@@ -342,7 +356,8 @@ class _SearchableDropdownState<T> extends State<SearchableDropdown<T>> {
       changeCompletionDelay: widget.changeCompletionDelay,
       isDialogExpanded: widget.isDialogExpanded,
       hasTrailingClearIcon: widget.hasTrailingClearIcon,
-      dialogOffset: widget.dialogOffset ?? 35,
+      dialogOffset: widget.dialogOffset ?? 0,
+      autofocusSearch: widget.autofocusSearch,
     );
 
     return SizedBox(
@@ -353,7 +368,6 @@ class _SearchableDropdownState<T> extends State<SearchableDropdown<T>> {
     );
   }
 }
-
 class _DropDown<T> extends StatelessWidget {
   const _DropDown({
     required this.controller,
@@ -552,6 +566,219 @@ class _DropDown<T> extends StatelessWidget {
   }
 }
 
+class _DropDownCard<T> extends StatefulWidget { // Changed to StatefulWidget
+  const _DropDownCard({
+    required this.controller,
+    required this.isReversed,
+    this.searchHintText,
+    this.paginatedRequest,
+    this.onChanged,
+    this.noRecordText,
+    this.changeCompletionDelay,
+    this.autofocusSearch = true,
+    // Key? key, // Removed key from constructor if not needed explicitly here
+  }) /*: super(key: key)*/; // Pass key if needed
+
+  final bool isReversed;
+  final Duration? changeCompletionDelay;
+  final Future<List<SearchableDropdownMenuItem<T>>?> Function(
+    int page,
+    String? searchKey,
+  )? paginatedRequest;
+  final SearchableDropdownController<T> controller;
+  final String? searchHintText;
+  final void Function(T? value)? onChanged;
+  final Widget? noRecordText;
+  final bool autofocusSearch;
+
+  @override
+  State<_DropDownCard<T>> createState() => _DropDownCardState<T>(); // Create State
+}
+
+class _DropDownCardState<T> extends State<_DropDownCard<T>> { // State class
+  final FocusNode _cardFocusNode = FocusNode(); // FocusNode for the card/list area
+  final ValueNotifier<int> _highlightedIndex = ValueNotifier<int>(-1); // Track highlighted item index
+  // Keep track of the list view's scroll controller to ensure visibility
+  final ScrollController _scrollController = ScrollController();
+  // Store item count to manage index boundaries
+  int _currentItemCount = 0;
+  // Define item height for scrolling calculation (adjust if your items have variable height)
+  static const double _listItemHeight = 35.0; // Example height, adjust as needed
+
+  @override
+  void initState() {
+    super.initState();
+    // Request focus for the card after the frame renders if search isn't autofocusing
+    // Or maybe always request focus here to ensure it *can* receive key events? Test needed.
+    // WidgetsBinding.instance.addPostFrameCallback((_) {
+    //   if (!widget.autofocusSearch) { // Only if search bar doesn't autofocus
+    //      FocusScope.of(context).requestFocus(_cardFocusNode);
+    //   }
+    // });
+
+    // Listen to list changes to reset highlight if list becomes empty/null
+     final listListenable = widget.paginatedRequest != null
+        ? widget.controller.paginatedItemList
+        : widget.controller.searchedItems;
+    listListenable.addListener(_updateItemCount);
+    _updateItemCount(); // Initial count
+  }
+
+  void _updateItemCount(){
+     final listListenable = widget.paginatedRequest != null
+        ? widget.controller.paginatedItemList
+        : widget.controller.searchedItems;
+     final list = listListenable.value;
+     final newCount = list?.length ?? 0;
+     if(newCount != _currentItemCount){
+        setState(() {
+           _currentItemCount = newCount;
+        });
+         // Reset highlight if list changes significantly (e.g., search)
+        _highlightedIndex.value = -1;
+     }
+  }
+
+  @override
+  void dispose() {
+    // Remove listener
+    final listListenable = widget.paginatedRequest != null
+        ? widget.controller.paginatedItemList
+        : widget.controller.searchedItems;
+    listListenable.removeListener(_updateItemCount);
+
+    _cardFocusNode.dispose();
+    _highlightedIndex.dispose();
+    _scrollController.dispose(); // Dispose ScrollController
+    super.dispose();
+  }
+
+  // --- Action Implementations ---
+  void _handleNavigateDown() {
+    if (_currentItemCount == 0) return;
+    _highlightedIndex.value = (_highlightedIndex.value + 1) % _currentItemCount;
+    _ensureVisible(_highlightedIndex.value);
+  }
+
+  void _handleNavigateUp() {
+    if (_currentItemCount == 0) return;
+    _highlightedIndex.value = (_highlightedIndex.value - 1 + _currentItemCount) % _currentItemCount;
+     _ensureVisible(_highlightedIndex.value);
+  }
+
+  void _handleSelectItem() {
+    if (_highlightedIndex.value < 0 || _highlightedIndex.value >= _currentItemCount) return;
+
+    final list = widget.paginatedRequest != null
+        ? widget.controller.paginatedItemList.value
+        : widget.controller.searchedItems.value;
+
+    if (list != null && _highlightedIndex.value < list.length) {
+      final item = list[_highlightedIndex.value];
+      widget.controller.selectedItem.value = item;
+      widget.onChanged?.call(item.value);
+      Navigator.pop(context); // Close the dialog
+      item.onTap?.call();
+    }
+  }
+
+  // --- Scroll Helper ---
+  void _ensureVisible(int index) {
+    if (!_scrollController.hasClients || index < 0) return;
+
+    final targetOffset = index * _listItemHeight; // Approximate offset
+    _scrollController.animateTo(
+      targetOffset,
+      duration: const Duration(milliseconds: 200),
+      curve: Curves.easeInOut,
+    );
+  }
+  // --- End Scroll Helper ---
+
+  @override
+  Widget build(BuildContext context) {
+    // --- Actions Map ---
+    final Map<Type, Action<Intent>> actions = {
+      NavigateDownIntent: CallbackAction<NavigateDownIntent>(onInvoke: (_) => _handleNavigateDown()),
+      NavigateUpIntent: CallbackAction<NavigateUpIntent>(onInvoke: (_) => _handleNavigateUp()),
+      SelectItemIntent: CallbackAction<SelectItemIntent>(onInvoke: (_) => _handleSelectItem()),
+      // Also handle ActivateIntent (usually Enter/Space on web/desktop)
+      ActivateIntent: CallbackAction<ActivateIntent>(onInvoke: (_) => _handleSelectItem()),
+    };
+
+    // --- Shortcuts Map ---
+    final Map<ShortcutActivator, Intent> shortcuts = {
+      const SingleActivator(LogicalKeyboardKey.arrowDown): const NavigateDownIntent(),
+      const SingleActivator(LogicalKeyboardKey.arrowUp): const NavigateUpIntent(),
+      const SingleActivator(LogicalKeyboardKey.enter): const SelectItemIntent(),
+      const SingleActivator(LogicalKeyboardKey.numpadEnter): const SelectItemIntent(),
+      const SingleActivator(LogicalKeyboardKey.space): const SelectItemIntent(), // Optional: select with space
+    };
+
+    return FocusableActionDetector( // Wrap with FocusableActionDetector
+      focusNode: _cardFocusNode,
+      autofocus: false, // Search bar handles autofocus based on widget.autofocusSearch
+      actions: actions,
+      shortcuts: shortcuts,
+      child: Column(
+        mainAxisAlignment:
+            widget.isReversed ? MainAxisAlignment.end : MainAxisAlignment.start,
+        children: [
+          Flexible(
+            child: Card(
+              margin: EdgeInsets.zero,
+              shape: const RoundedRectangleBorder(
+                borderRadius: BorderRadius.all(Radius.circular(8)),
+              ),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(vertical: 4),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  verticalDirection:
+                      widget.isReversed ? VerticalDirection.up : VerticalDirection.down,
+                  children: [
+                    // Pass the card's focus node and actions to the search bar wrapper
+                    _DropDownSearchBarWrapper(
+                        controller: widget.controller,
+                        searchHintText: widget.searchHintText,
+                        changeCompletionDelay: widget.changeCompletionDelay,
+                        autofocus: widget.autofocusSearch,
+                        parentFocusNode: _cardFocusNode, // Pass focus node
+                        parentActions: actions,          // Pass actions
+                    ),
+                    Flexible(
+                      child: ValueListenableBuilder<int>( // Listen for highlight changes
+                        valueListenable: _highlightedIndex,
+                        builder: (context, highlightedIndexValue, _) {
+                          return _DropDownListView(
+                            dropdownController: widget.controller,
+                            paginatedRequest: widget.paginatedRequest,
+                            isReversed: widget.isReversed,
+                            noRecordText: widget.noRecordText,
+                            onChanged: widget.onChanged,
+                            highlightedIndex: highlightedIndexValue, // Pass highlight index
+                            scrollController: _scrollController, // Pass scroll controller
+                            onItemTap: (item) { // Add callback for direct tap selection
+                                widget.controller.selectedItem.value = item as SearchableDropdownMenuItem<T>?;
+                                widget.onChanged?.call(item.value as T?);
+                                Navigator.pop(context);
+                                item.onTap?.call();
+                            }
+                          );
+                        }
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 class _DropDownText<T> extends StatelessWidget {
   const _DropDownText({
     required this.controller,
@@ -579,70 +806,140 @@ class _DropDownText<T> extends StatelessWidget {
   }
 }
 
-class _DropDownCard<T> extends StatelessWidget {
-  const _DropDownCard({
+class _DropDownSearchBarWrapper<T> extends StatefulWidget {
+  const _DropDownSearchBarWrapper({
     required this.controller,
-    required this.isReversed,
     this.searchHintText,
-    this.paginatedRequest,
-    this.onChanged,
-    this.noRecordText,
     this.changeCompletionDelay,
-    this.autofocusSearch = true,
-  });
+    this.autofocus = false,
+    required this.parentFocusNode, // Receive parent focus node
+    required this.parentActions,   // Receive parent actions map
+    Key? key,
+  }) : super(key: key);
 
-  final bool isReversed;
-  final Duration? changeCompletionDelay;
-  final Future<List<SearchableDropdownMenuItem<T>>?> Function(
-    int page,
-    String? searchKey,
-  )? paginatedRequest;
   final SearchableDropdownController<T> controller;
   final String? searchHintText;
-  final void Function(T? value)? onChanged;
-  final Widget? noRecordText;
-  final bool autofocusSearch;
+  final Duration? changeCompletionDelay;
+  final bool autofocus;
+  final FocusNode parentFocusNode;
+  final Map<Type, Action<Intent>> parentActions;
+
+
+  @override
+  State<_DropDownSearchBarWrapper<T>> createState() => _DropDownSearchBarWrapperState<T>();
+}
+
+class _DropDownSearchBarWrapperState<T> extends State<_DropDownSearchBarWrapper<T>> {
+  final FocusNode _searchFocusNode = FocusNode();
+  Timer? _debounce;
+
+  @override
+  void initState() {
+    super.initState();
+    if (widget.autofocus) {
+       WidgetsBinding.instance.addPostFrameCallback((_) {
+         // Check if context is still mounted before requesting focus
+         if(mounted) {
+            FocusScope.of(context).requestFocus(_searchFocusNode);
+         }
+       });
+    }
+  }
+
+  @override
+  void dispose() {
+    _searchFocusNode.dispose();
+    _debounce?.cancel();
+    super.dispose();
+  }
+
+  // --- Debounced Search Logic ---
+   void _onSearchChanged(String value) {
+      _debounce?.cancel();
+      _debounce = Timer(widget.changeCompletionDelay ?? const Duration(milliseconds: 200), () {
+          if (!mounted) return; // Check if mounted before proceeding
+
+          widget.controller.searchText = value;
+          // Clear highlight when search text changes
+          (widget.parentFocusNode.context?.findAncestorStateOfType<_DropDownCardState<T>>())?._highlightedIndex.value = -1;
+
+          if (widget.controller.items != null) {
+            widget.controller.fillSearchedList(value);
+          } else if (widget.controller.paginatedRequest != null){
+             widget.controller.getItemsWithPaginatedRequest(
+              key: value.isEmpty ? null : value,
+              page: 1,
+              isNewSearch: true,
+            );
+          } else if (widget.controller.futureRequest != null && value.isNotEmpty) {
+              // Optional: If using futureRequest, maybe filter results locally?
+              // Or refetch if futureRequest can take a search key?
+              // For now, we assume futureRequest fetches all and fillSearchedList filters.
+              widget.controller.fillSearchedList(value);
+          } else if (widget.controller.futureRequest != null && value.isEmpty) {
+              // Reset future list if search is cleared
+              widget.controller.fillSearchedList(null);
+          }
+      });
+   }
+   // --- End Debounced Search Logic ---
+
+
+  // --- Key Event Handling ---
+  KeyEventResult _handleKeyEvent(FocusNode node, KeyEvent event) {
+    if (event is KeyDownEvent) { // Process only key down events
+        Action<Intent>? action;
+        Intent? intent;
+
+        if (event.logicalKey == LogicalKeyboardKey.arrowDown) {
+            intent = const NavigateDownIntent();
+            action = widget.parentActions[NavigateDownIntent];
+        } else if (event.logicalKey == LogicalKeyboardKey.arrowUp) {
+            intent = const NavigateUpIntent();
+            action = widget.parentActions[NavigateUpIntent];
+        } else if (event.logicalKey == LogicalKeyboardKey.enter || event.logicalKey == LogicalKeyboardKey.numpadEnter) {
+             intent = const SelectItemIntent();
+             action = widget.parentActions[SelectItemIntent];
+        }
+        // Add Space handling if desired for selection
+        // else if (event.logicalKey == LogicalKeyboardKey.space) {
+        //      intent = const SelectItemIntent();
+        //      action = widget.parentActions[SelectItemIntent];
+        // }
+
+        if (action != null && intent != null) {
+             // Check if context is available before invoking action
+            if(widget.parentFocusNode.context != null) {
+                Actions.invoke(widget.parentFocusNode.context!, intent);
+                return KeyEventResult.handled; // We handled the key event
+            }
+        }
+    }
+    return KeyEventResult.ignored; // Let the TextField handle other keys
+  }
+  // --- End Key Event Handling ---
 
   @override
   Widget build(BuildContext context) {
-    return Column(
-      mainAxisAlignment:
-          isReversed ? MainAxisAlignment.end : MainAxisAlignment.start,
-      children: [
-        Flexible(
-          child: Card(
-            margin: EdgeInsets.zero,
-            shape: const RoundedRectangleBorder(
-              borderRadius: BorderRadius.all(Radius.circular(8)),
-            ),
-            child: Padding(
-              padding: const EdgeInsets.symmetric(vertical: 4),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                verticalDirection:
-                    isReversed ? VerticalDirection.up : VerticalDirection.down,
-                children: [
-                  _DropDownSearchBar(
-                    controller: controller,
-                    searchHintText: searchHintText,
-                    changeCompletionDelay: changeCompletionDelay,
-                    autofocus: autofocusSearch,
-                  ),
-                  Flexible(
-                    child: _DropDownListView(
-                      dropdownController: controller,
-                      paginatedRequest: paginatedRequest,
-                      isReversed: isReversed,
-                      noRecordText: noRecordText,
-                      onChanged: onChanged,
-                    ),
-                  ),
-                ],
-              ),
-            ),
+    return Padding(
+      padding: const EdgeInsets.all(8),
+      child: Focus( // Wrap search bar with Focus to intercept keys
+          // focusNode: _searchFocusNode, // Use the dedicated search focus node
+          onKeyEvent: _handleKeyEvent, // Use the key handler
+          child: CustomSearchBar( // Your existing CustomSearchBar
+            // No FocusNode passed here - managed by the outer Focus widget
+            // controller: SearchController(), // Or however CustomSearchBar gets text
+            // onChanged: _onSearchChanged, // Use onChanged for debouncing
+            // onChangeComplete: null, // Remove direct onChangeComplete if using onChanged
+            focusNode: _searchFocusNode, 
+            onChangeComplete: _onSearchChanged,
+            hintText: widget.searchHintText ?? 'Search',
+            isOutlined: true,
+            leadingIcon: const Icon(Icons.search, size: 24),
+            // Ensure CustomSearchBar has a way to get/set text if not using TextEditingController
+            // If CustomSearchBar uses TextEditingController, manage it here.
           ),
         ),
-      ],
     );
   }
 }
@@ -652,7 +949,7 @@ class _DropDownSearchBar<T> extends StatefulWidget {
     required this.controller,
     this.searchHintText,
     this.changeCompletionDelay,
-    this.autofocus = false, // NEW: Added parameter
+    this.autofocus = true, // NEW: Added parameter
   });
 
   final Duration? changeCompletionDelay;
@@ -717,10 +1014,14 @@ class _DropDownListView<T> extends StatefulWidget {
   const _DropDownListView({
     required this.dropdownController,
     required this.isReversed,
+    required this.highlightedIndex, // New: highlighted index
+    required this.scrollController, // New: scroll controller
+    required this.onItemTap,        // New: callback for tap
     this.paginatedRequest,
     this.noRecordText,
-    this.onChanged,
-  });
+    this.onChanged, // Keep onChanged for compatibility if needed, but prefer onItemTap
+    Key? key,
+  }) : super(key: key);
 
   final bool isReversed;
   final Future<List<SearchableDropdownMenuItem<T>>?> Function(
@@ -728,132 +1029,179 @@ class _DropDownListView<T> extends StatefulWidget {
     String? searchKey,
   )? paginatedRequest;
   final SearchableDropdownController<T> dropdownController;
-  final void Function(T? value)? onChanged;
+  final void Function(T? value)? onChanged; // Can likely be removed if using onItemTap
   final Widget? noRecordText;
+  final int highlightedIndex;
+  final ScrollController scrollController;
+  final Function(SearchableDropdownMenuItem<T> item) onItemTap;
+
 
   @override
   State<_DropDownListView<T>> createState() => _DropDownListViewState<T>();
 }
 
 class _DropDownListViewState<T> extends State<_DropDownListView<T>> {
-  ScrollController scrollController = ScrollController();
-  Timer? timer;
+  // ScrollController is now managed by _DropDownCardState and passed in
+  // ScrollController scrollController = ScrollController();
+  Timer? timer; // For pagination throttling
 
-  @override
-  void initState() {
-    super.initState();
-    scrollController.addListener(scrollControllerListener);
-  }
-
-  @override
-  void dispose() {
-    super.dispose();
-    scrollController
-      ..removeListener(scrollControllerListener)
-      ..dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return ValueListenableBuilder(
-      valueListenable: widget.paginatedRequest != null
-          ? widget.dropdownController.paginatedItemList
-          : widget.dropdownController.searchedItems,
-      builder: (
-        context,
-        List<SearchableDropdownMenuItem<T>>? itemList,
-        child,
-      ) =>
-          itemList == null
-              ? const Center(child: CircularProgressIndicator.adaptive())
-              : itemList.isEmpty
-                  ? Padding(
-                      padding: const EdgeInsets.all(8),
-                      child: widget.noRecordText ?? const Text('No record'),
-                    )
-                  : Scrollbar(
-                      thumbVisibility: true,
-                      controller: scrollController,
-                      child: NotificationListener(
-                        child: ListView.builder(
-                          controller: scrollController,
-                          padding:
-                              listViewPadding(isReversed: widget.isReversed),
-                          itemCount: itemList.length + 1,
-                          shrinkWrap: true,
-                          reverse: widget.isReversed,
-                          itemBuilder: (context, index) {
-                            if (index < itemList.length) {
-                              final item = itemList.elementAt(index);
-                              return CustomInkwell(
-                                child: item.child,
-                                onTap: () {
-                                  widget.dropdownController.selectedItem.value =
-                                      item;
-                                  widget.onChanged?.call(item.value);
-                                  Navigator.pop(context);
-                                  item.onTap?.call();
-                                },
-                              );
-                            } else {
-                              return ValueListenableBuilder(
-                                valueListenable:
-                                    widget.dropdownController.status,
-                                builder: (
-                                  context,
-                                  SearchableDropdownStatus state,
-                                  child,
-                                ) {
-                                  if (state == SearchableDropdownStatus.busy) {
-                                    return const Center(
-                                      child:
-                                          CircularProgressIndicator.adaptive(),
-                                    );
-                                  }
-                                  return const SizedBox.shrink();
-                                },
-                              );
-                            }
-                          },
-                        ),
-                      ),
-                    ),
-    );
-  }
-
-  EdgeInsets listViewPadding({required bool isReversed}) {
-    final itemHeight = widget.paginatedRequest != null
-        ? 48.0
-        : 0.0; // Offset to show progress indicator; Only needed on paginated dropdown
-    return EdgeInsets.only(
-      left: 8,
-      right: 8,
-      bottom: isReversed ? 0 : itemHeight,
-      top: isReversed ? itemHeight : 0,
-    );
-  }
-
+  // Pagination Listener
   void scrollControllerListener({
     double sensitivity = 150.0,
     Duration throttleDuration = const Duration(milliseconds: 400),
   }) {
-    if (timer != null) return;
+    // Only attach listener if paginated request exists
+    if (widget.paginatedRequest == null) return;
+
+    if (timer != null && timer!.isActive) return; // Check if timer is active
 
     timer = Timer(throttleDuration, () => timer = null);
 
-    final position = scrollController.position;
-    final maxScroll = scrollController.position.maxScrollExtent;
+    final position = widget.scrollController.position;
+    final maxScroll = position.maxScrollExtent;
     final currentScroll = position.pixels;
     final dropdownController = widget.dropdownController;
     final searchText = dropdownController.searchText;
-    if (maxScroll - currentScroll <= sensitivity) {
-      if (searchText.isNotEmpty) {
-        dropdownController.getItemsWithPaginatedRequest(
-            page: dropdownController.page, key: searchText,);
-      } else {
-        dropdownController.getItemsWithPaginatedRequest(
-            page: dropdownController.page,);
-      }
+
+    // Check if near the end and if the dropdown is NOT reversed
+    // Or check if near the start and the dropdown IS reversed (for future implementation if needed)
+    if (!widget.isReversed && maxScroll - currentScroll <= sensitivity) {
+        // Check status before fetching more to prevent concurrent requests
+       if (dropdownController.status.value != SearchableDropdownStatus.busy) {
+           dropdownController.getItemsWithPaginatedRequest(
+             page: dropdownController.page,
+             key: searchText.isEmpty ? null : searchText,
+           );
+       }
+    }
+     // Optional: Add logic for reversed pagination if needed
+     // else if (widget.isReversed && currentScroll <= sensitivity) { ... }
+  }
+
+
+  @override
+  void initState() {
+    super.initState();
+    // Use the passed-in scrollController
+    if (widget.paginatedRequest != null) {
+      widget.scrollController.addListener(scrollControllerListener);
     }
   }
+
+  @override
+  void didUpdateWidget(covariant _DropDownListView<T> oldWidget) {
+      super.didUpdateWidget(oldWidget);
+      // If pagination capability changes, update listener
+      if (widget.paginatedRequest != null && oldWidget.paginatedRequest == null) {
+          widget.scrollController.addListener(scrollControllerListener);
+      } else if (widget.paginatedRequest == null && oldWidget.paginatedRequest != null) {
+          widget.scrollController.removeListener(scrollControllerListener);
+      }
+  }
+
+
+  @override
+  void dispose() {
+    // Listener is removed in didUpdateWidget or here if controller is disposed externally
+    // Only remove if it was added
+     if (widget.paginatedRequest != null) {
+       // Check if controller still has clients before removing listener
+       if (widget.scrollController.hasClients){
+            widget.scrollController.removeListener(scrollControllerListener);
+       }
+     }
+     timer?.cancel();
+    // Don't dispose the scrollController here, it's owned by _DropDownCardState
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    // Determine which list to listen to
+    final listListenable = widget.paginatedRequest != null
+      ? widget.dropdownController.paginatedItemList
+      : widget.dropdownController.searchedItems;
+
+    return ValueListenableBuilder<List<SearchableDropdownMenuItem<T>>?>(
+      valueListenable: listListenable,
+      builder: ( context, itemList, child,) {
+        if (itemList == null && widget.dropdownController.status.value == SearchableDropdownStatus.busy) {
+          return const Center(child: CircularProgressIndicator.adaptive());
+        }
+        if (itemList == null || itemList.isEmpty) {
+          // Check if it was a future request that just hasn't loaded yet
+           if (widget.dropdownController.futureRequest != null && itemList == null) {
+              return const Center(child: CircularProgressIndicator.adaptive());
+           }
+          return Padding(
+            padding: const EdgeInsets.all(8),
+            child: widget.noRecordText ?? const Text('No results found'), // Changed default text
+          );
+        }
+
+        // Update the item count in the parent state if needed (though listener does this now)
+        // WidgetsBinding.instance.addPostFrameCallback((_) {
+        //    if (mounted) {
+        //       (context.findAncestorStateOfType<_DropDownCardState<T>>() as _DropDownCardState<T>?)?._updateItemCount(itemList.length);
+        //    }
+        // });
+
+
+        return Scrollbar(
+          thumbVisibility: true,
+          controller: widget.scrollController, // Use passed-in controller
+          child: ListView.builder(
+            controller: widget.scrollController, // Use passed-in controller
+            padding: listViewPadding(isReversed: widget.isReversed, isPaginated: widget.paginatedRequest != null), // Pass pagination flag
+            itemCount: itemList.length + (widget.paginatedRequest != null ? 1: 0), // Add 1 for loading indicator only if paginated
+            shrinkWrap: true,
+            reverse: widget.isReversed,
+            itemBuilder: (context, index) {
+              // Loading indicator logic (only for paginated)
+              if (widget.paginatedRequest != null && index == itemList.length) {
+                  return ValueListenableBuilder<SearchableDropdownStatus>(
+                      valueListenable: widget.dropdownController.status,
+                      builder: (context, state, child) {
+                          return (state == SearchableDropdownStatus.busy && itemList.isNotEmpty) // Show only when loading more
+                              ? const Center(child: Padding(
+                                  padding: EdgeInsets.symmetric(vertical: 8.0),
+                                  child: CircularProgressIndicator.adaptive()
+                                ))
+                              : const SizedBox.shrink();
+                      },
+                  );
+              }
+
+              // Item rendering logic
+              final item = itemList.elementAt(index);
+              final bool isHighlighted = index == widget.highlightedIndex;
+
+              return Material( // Wrap with Material for inkwell splash and background
+                    color: isHighlighted
+                        ? Theme.of(context).focusColor // Use theme's focus color for highlight
+                        : Colors.transparent,
+                    child: CustomInkwell( // Your existing InkWell
+                      onTap: () => widget.onItemTap(item), // Use the new callback
+                      child: item.child,
+                    ),
+                );
+            },
+          ),
+        );
+      },
+    );
+  }
+
+    // Updated padding calculation
+   EdgeInsets listViewPadding({required bool isReversed, required bool isPaginated}) {
+      // Only add padding for the loading indicator space if paginated
+      final itemHeight = isPaginated ? _DropDownCardState._listItemHeight : 0.0;
+      return EdgeInsets.only(
+        left: 8,
+        right: 8,
+        bottom: isReversed ? 0 : itemHeight,
+        top: isReversed ? itemHeight : 0,
+      );
+   }
+
 }

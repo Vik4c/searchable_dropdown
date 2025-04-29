@@ -5,6 +5,7 @@ import 'package:searchable_paginated_dropdown/src/utils/custom_inkwell.dart';
 
 class CustomSearchBar extends StatelessWidget {
   const CustomSearchBar({
+    
     super.key,
     this.onChangeComplete,
     this.changeCompletionDelay = const Duration(milliseconds: 800),
