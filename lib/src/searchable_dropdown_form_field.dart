@@ -84,6 +84,7 @@ class SearchableDropdownFormField<T> extends FormField<T> {
     bool isDialogExpanded = true,
     bool hasTrailingClearIcon = true,
     double? dialogOffset,
+    Widget? loadingWidget,
   }) : this._(
           controller: controller,
           paginatedRequest: paginatedRequest,
@@ -111,6 +112,7 @@ class SearchableDropdownFormField<T> extends FormField<T> {
           isDialogExpanded: isDialogExpanded,
           hasTrailingClearIcon: hasTrailingClearIcon,
           dialogOffset: dialogOffset,
+          loadingWidget: loadingWidget,
         );
 
   SearchableDropdownFormField.future({
@@ -196,6 +198,7 @@ class SearchableDropdownFormField<T> extends FormField<T> {
     this.isDialogExpanded = true,
     this.hasTrailingClearIcon = true,
     this.dialogOffset,
+    this.loadingWidget,
   })  : assert(initialValue == null || controller == null,
             'You can use controllers initial item value',),
         super(
@@ -254,6 +257,7 @@ class SearchableDropdownFormField<T> extends FormField<T> {
                       changeCompletionDelay: changeCompletionDelay,
                       isDialogExpanded: isDialogExpanded,
                       dialogOffset: dialogOffset,
+                      loadingWidget: loadingWidget,
                     ),
                   if (futureRequest != null)
                     SearchableDropdown<T>.future(
@@ -360,6 +364,9 @@ class SearchableDropdownFormField<T> extends FormField<T> {
 
   /// Dropdown trailing icon.
   final Widget? leadingIcon;
+
+  /// Widget shown when data is being loaded.
+  final Widget? loadingWidget;
 
   /// Validation Error widget which is shown under dropdown.
   final Widget Function(String? errorText)? errorWidget;

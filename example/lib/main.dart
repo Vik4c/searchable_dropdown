@@ -23,6 +23,7 @@ class _MyAppState extends State<MyApp> {
       label: 'At',
       child: Text('At'),
     ),
+    loadingWidget: const LinearProgressIndicator(),
   );
 
   @override
@@ -58,6 +59,7 @@ class _MyAppState extends State<MyApp> {
                           child: Text(e.title ?? '')))
                       .toList();
                 },
+                // loadingWidget: const LinearProgressIndicator(),
                 onChanged: (int? value) {
                   debugPrint('$value');
                 },
@@ -80,6 +82,19 @@ class _MyAppState extends State<MyApp> {
                           child: Text(e.title ?? '')))
                       .toList();
                 },
+                loadingWidget: Container(
+                  width: 140,
+                  height: 5,
+                  clipBehavior: Clip.antiAlias,
+                  decoration: BoxDecoration(
+                    color: Colors.black.withValues(alpha: 0.2),
+                    borderRadius: BorderRadius.circular(5 / 2),
+                  ),
+                  child: const LinearProgressIndicator(
+                    valueColor: AlwaysStoppedAnimation<Color>(Colors.black),
+                    backgroundColor: Colors.transparent,
+                  ),
+                ),
                 requestItemCount: 25,
                 onChanged: (int? value) {
                   debugPrint('$value');
