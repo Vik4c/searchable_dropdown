@@ -46,7 +46,8 @@ class SearchableDropdown<T> extends StatefulWidget {
     bool isDialogExpanded = true,
     bool hasTrailingClearIcon = true,
     double? dialogOffset,
-    bool autofocusSearch = true
+    bool autofocusSearch = true,
+    Widget? loadingWidget,
   }) : this._(
           key: key,
           hintText: hintText,
@@ -71,6 +72,7 @@ class SearchableDropdown<T> extends StatefulWidget {
           hasTrailingClearIcon: hasTrailingClearIcon,
           dialogOffset: dialogOffset,
           autofocusSearch: autofocusSearch,
+          loadingWidget: loadingWidget,
         );
 
   const SearchableDropdown.paginated({
@@ -103,6 +105,7 @@ class SearchableDropdown<T> extends StatefulWidget {
     SearchableDropdownMenuItem<T>? initialValue,
     double? dialogOffset,
     bool autofocusSearch = true,
+    Widget? loadingWidget,
   }) : this._(
           key: key,
           controller: controller,
@@ -128,7 +131,8 @@ class SearchableDropdown<T> extends StatefulWidget {
           hasTrailingClearIcon: hasTrailingClearIcon,
           initialFutureValue: initialValue,
           dialogOffset: dialogOffset,
-          autofocusSearch: autofocusSearch
+          autofocusSearch: autofocusSearch,
+          loadingWidget: loadingWidget,
         );
 
   const SearchableDropdown.future({
@@ -157,6 +161,7 @@ class SearchableDropdown<T> extends StatefulWidget {
     SearchableDropdownMenuItem<T>? initialValue,
     double? dialogOffset,
     bool autofocusSearch = true,
+    Widget? loadingWidget,
   }) : this._(
           futureRequest: futureRequest,
           key: key,
@@ -182,6 +187,7 @@ class SearchableDropdown<T> extends StatefulWidget {
           initialFutureValue: initialValue,
           dialogOffset: dialogOffset,
           autofocusSearch: autofocusSearch,
+          loadingWidget: loadingWidget,
         );
 
   const SearchableDropdown._({
@@ -213,6 +219,7 @@ class SearchableDropdown<T> extends StatefulWidget {
     this.hasTrailingClearIcon = true,
     this.dialogOffset,
     this.autofocusSearch = true,
+    this.loadingWidget,
   });
 
   //Is dropdown enabled
@@ -290,6 +297,9 @@ class SearchableDropdown<T> extends StatefulWidget {
   /// Dropdown trailing icon.
   final Widget? leadingIcon;
 
+  /// Widget shown when data is being loaded.
+  final Widget? loadingWidget;
+  
   /// Background decoration of dropdown, i.e. with this you can wrap dropdown with Card.
   final Widget Function(Widget child)? backgroundDecoration;
 
@@ -305,7 +315,13 @@ class _SearchableDropdownState<T> extends State<SearchableDropdown<T>> {
 
   @override
   void initState() {
-    dropdownController = widget.controller ?? SearchableDropdownController<T>();
+    super.initState(); 
+    dropdownController = widget.controller ??
+        SearchableDropdownController<T>(
+          initialItem: widget.initialFutureValue, 
+          loadingWidget: widget.loadingWidget, 
+        );
+
     dropdownController
       ..paginatedRequest = widget.paginatedRequest
       ..futureRequest = widget.futureRequest
@@ -322,8 +338,44 @@ class _SearchableDropdownState<T> extends State<SearchableDropdown<T>> {
       }
     }
 
-    if (dropdownController.paginatedRequest == null) return;
-    super.initState();
+    if (dropdownController.paginatedRequest == null) {
+      if (widget.futureRequest != null) {
+        dropdownController.getItemsWithFutureRequest();
+      }
+    } else {
+      dropdownController.getItemsWithPaginatedRequest(
+          page: 1, key: null, isNewSearch: true);
+    }
+  }
+
+  @override
+  void didUpdateWidget(covariant SearchableDropdown<T> oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.controller == null && oldWidget.controller != null) {
+      oldWidget.controller?.dispose(); 
+      dropdownController = SearchableDropdownController<T>(
+        initialItem: widget.initialFutureValue,
+        loadingWidget: widget.loadingWidget,
+      );
+      dropdownController
+        ..paginatedRequest = widget.paginatedRequest
+        ..futureRequest = widget.futureRequest
+        ..requestItemCount = widget.requestItemCount ?? 0
+        ..items = widget.items
+        ..searchedItems.value = widget.items;
+
+    } else if (widget.controller != null &&
+        widget.controller != oldWidget.controller) {
+      if (oldWidget.controller == null) {
+        oldWidget.controller?.dispose();
+      }
+      dropdownController = widget.controller!;
+    }
+    dropdownController.paginatedRequest = widget.paginatedRequest;
+    dropdownController.futureRequest = widget.futureRequest;
+    dropdownController.requestItemCount = widget.requestItemCount ?? 0;
+    dropdownController.items = widget.items;
+    dropdownController.searchedItems.value = widget.items;
   }
 
   @override
@@ -368,6 +420,7 @@ class _SearchableDropdownState<T> extends State<SearchableDropdown<T>> {
     );
   }
 }
+
 class _DropDown<T> extends StatelessWidget {
   const _DropDown({
     required this.controller,
@@ -816,7 +869,6 @@ class _DropDownSearchBarWrapper<T> extends StatefulWidget {
   final FocusNode parentFocusNode;
   final Map<Type, Action<Intent>> parentActions;
 
-
   @override
   State<_DropDownSearchBarWrapper<T>> createState() => _DropDownSearchBarWrapperState<T>();
 }
@@ -1000,6 +1052,7 @@ class _DropDownSearchBarState<T> extends State<_DropDownSearchBar<T>> {
     );
   }
 }
+
 class _DropDownListView<T> extends StatefulWidget {
   const _DropDownListView({
     required this.dropdownController,
@@ -1024,7 +1077,6 @@ class _DropDownListView<T> extends StatefulWidget {
   final int highlightedIndex;
   final ScrollController scrollController;
   final Function(SearchableDropdownMenuItem<T> item) onItemTap;
-
 
   @override
   State<_DropDownListView<T>> createState() => _DropDownListViewState<T>();
@@ -1068,7 +1120,6 @@ class _DropDownListViewState<T> extends State<_DropDownListView<T>> {
      // else if (widget.isReversed && currentScroll <= sensitivity) { ... }
   }
 
-
   @override
   void initState() {
     super.initState();
@@ -1089,7 +1140,6 @@ class _DropDownListViewState<T> extends State<_DropDownListView<T>> {
       }
   }
 
-
   @override
   void dispose() {
     // Listener is removed in didUpdateWidget or here if controller is disposed externally
@@ -1109,19 +1159,19 @@ class _DropDownListViewState<T> extends State<_DropDownListView<T>> {
   Widget build(BuildContext context) {
     // Determine which list to listen to
     final listListenable = widget.paginatedRequest != null
-      ? widget.dropdownController.paginatedItemList
-      : widget.dropdownController.searchedItems;
+        ? widget.dropdownController.paginatedItemList
+        : widget.dropdownController.searchedItems;
 
     return ValueListenableBuilder<List<SearchableDropdownMenuItem<T>>?>(
       valueListenable: listListenable,
       builder: ( context, itemList, child,) {
         if (itemList == null && widget.dropdownController.status.value == SearchableDropdownStatus.busy) {
-          return const Center(child: CircularProgressIndicator.adaptive());
+          return Center(child: widget.dropdownController.loadingWidget ?? const CircularProgressIndicator.adaptive());
         }
-        if (itemList == null || itemList.isEmpty) {
+        if (itemList == null || itemList.isEmpty) {         
           // Check if it was a future request that just hasn't loaded yet
            if (widget.dropdownController.futureRequest != null && itemList == null) {
-              return const Center(child: CircularProgressIndicator.adaptive());
+              return Center(child: widget.dropdownController.loadingWidget ?? const CircularProgressIndicator.adaptive());
            }
           return Padding(
             padding: const EdgeInsets.all(8),
@@ -1144,10 +1194,12 @@ class _DropDownListViewState<T> extends State<_DropDownListView<T>> {
                   return ValueListenableBuilder<SearchableDropdownStatus>(
                       valueListenable: widget.dropdownController.status,
                       builder: (context, state, child) {
-                          return (state == SearchableDropdownStatus.busy && itemList.isNotEmpty) 
-                              ? const Center(child: Padding(
+                       // Use the provided loadingWidget if available for ongoing pagination
+                          return (state == SearchableDropdownStatus.busy && itemList.isNotEmpty)
+                              ? Center(
+                                  child: Padding(
                                   padding: EdgeInsets.symmetric(vertical: 8.0),
-                                  child: CircularProgressIndicator.adaptive()
+                                  child: widget.dropdownController.loadingWidget ?? CircularProgressIndicator.adaptive(),
                                 ))
                               : const SizedBox.shrink();
                       },
