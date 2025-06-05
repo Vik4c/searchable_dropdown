@@ -23,7 +23,6 @@ class _MyAppState extends State<MyApp> {
       label: 'At',
       child: Text('At'),
     ),
-    loadingWidget: const LinearProgressIndicator(),
   );
 
   @override

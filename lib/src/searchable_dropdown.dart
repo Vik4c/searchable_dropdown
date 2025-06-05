@@ -319,7 +319,6 @@ class _SearchableDropdownState<T> extends State<SearchableDropdown<T>> {
     dropdownController = widget.controller ??
         SearchableDropdownController<T>(
           initialItem: widget.initialFutureValue, 
-          loadingWidget: widget.loadingWidget, 
         );
 
     dropdownController
@@ -346,36 +345,6 @@ class _SearchableDropdownState<T> extends State<SearchableDropdown<T>> {
       dropdownController.getItemsWithPaginatedRequest(
           page: 1, key: null, isNewSearch: true);
     }
-  }
-
-  @override
-  void didUpdateWidget(covariant SearchableDropdown<T> oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    if (widget.controller == null && oldWidget.controller != null) {
-      oldWidget.controller?.dispose(); 
-      dropdownController = SearchableDropdownController<T>(
-        initialItem: widget.initialFutureValue,
-        loadingWidget: widget.loadingWidget,
-      );
-      dropdownController
-        ..paginatedRequest = widget.paginatedRequest
-        ..futureRequest = widget.futureRequest
-        ..requestItemCount = widget.requestItemCount ?? 0
-        ..items = widget.items
-        ..searchedItems.value = widget.items;
-
-    } else if (widget.controller != null &&
-        widget.controller != oldWidget.controller) {
-      if (oldWidget.controller == null) {
-        oldWidget.controller?.dispose();
-      }
-      dropdownController = widget.controller!;
-    }
-    dropdownController.paginatedRequest = widget.paginatedRequest;
-    dropdownController.futureRequest = widget.futureRequest;
-    dropdownController.requestItemCount = widget.requestItemCount ?? 0;
-    dropdownController.items = widget.items;
-    dropdownController.searchedItems.value = widget.items;
   }
 
   @override
@@ -410,6 +379,7 @@ class _SearchableDropdownState<T> extends State<SearchableDropdown<T>> {
       hasTrailingClearIcon: widget.hasTrailingClearIcon,
       dialogOffset: widget.dialogOffset ?? 0,
       autofocusSearch: widget.autofocusSearch,
+      loadingWidget: widget.loadingWidget,
     );
 
     return SizedBox(
@@ -439,6 +409,7 @@ class _DropDown<T> extends StatelessWidget {
     this.futureRequest,
     this.paginatedRequest,
     this.noRecordText,
+    this.loadingWidget,
     this.onChanged,
     this.searchHintText,
     this.changeCompletionDelay,
@@ -469,6 +440,7 @@ class _DropDown<T> extends StatelessWidget {
   final Widget? leadingIcon;
   final Widget? hintText;
   final Widget? noRecordText;
+  final Widget? loadingWidget;
   final bool autofocusSearch;
 
   @override
@@ -608,6 +580,7 @@ class _DropDown<T> extends StatelessWidget {
                   searchHintText: searchHintText,
                   changeCompletionDelay: changeCompletionDelay,
                   autofocusSearch: autofocusSearch,
+                  loadingWidget: loadingWidget,
                 ),
               ),
             ],
@@ -627,6 +600,7 @@ class _DropDownCard<T> extends StatefulWidget { // Changed to StatefulWidget
     this.paginatedRequest,
     this.onChanged,
     this.noRecordText,
+    this.loadingWidget,
     this.changeCompletionDelay,
     this.autofocusSearch = true,
     // Key? key, // Removed key from constructor if not needed explicitly here
@@ -642,6 +616,7 @@ class _DropDownCard<T> extends StatefulWidget { // Changed to StatefulWidget
   final String? searchHintText;
   final void Function(T? value)? onChanged;
   final Widget? noRecordText;
+  final Widget? loadingWidget;
   final bool autofocusSearch;
 
   @override
@@ -796,6 +771,7 @@ class _DropDownCardState<T> extends State<_DropDownCard<T>> { // State class
                         valueListenable: _highlightedIndex,
                         builder: (context, highlightedIndexValue, _) {
                           return _DropDownListView(
+                            loadingWidget: widget.loadingWidget,
                             dropdownController: widget.controller,
                             paginatedRequest: widget.paginatedRequest,
                             isReversed: widget.isReversed,
@@ -1061,6 +1037,7 @@ class _DropDownListView<T> extends StatefulWidget {
     required this.scrollController, // New: scroll controller
     required this.onItemTap,        // New: callback for tap
     this.paginatedRequest,
+   this.loadingWidget,
     this.noRecordText,
     this.onChanged, // Keep onChanged for compatibility if needed, but prefer onItemTap
     Key? key,
@@ -1074,6 +1051,7 @@ class _DropDownListView<T> extends StatefulWidget {
   final SearchableDropdownController<T> dropdownController;
   final void Function(T? value)? onChanged; // Can likely be removed if using onItemTap
   final Widget? noRecordText;
+  final Widget? loadingWidget;
   final int highlightedIndex;
   final ScrollController scrollController;
   final Function(SearchableDropdownMenuItem<T> item) onItemTap;
@@ -1166,12 +1144,12 @@ class _DropDownListViewState<T> extends State<_DropDownListView<T>> {
       valueListenable: listListenable,
       builder: ( context, itemList, child,) {
         if (itemList == null && widget.dropdownController.status.value == SearchableDropdownStatus.busy) {
-          return Center(child: widget.dropdownController.loadingWidget ?? const CircularProgressIndicator.adaptive());
+          return Center(child: widget.loadingWidget ?? const CircularProgressIndicator.adaptive());
         }
         if (itemList == null || itemList.isEmpty) {         
           // Check if it was a future request that just hasn't loaded yet
            if (widget.dropdownController.futureRequest != null && itemList == null) {
-              return Center(child: widget.dropdownController.loadingWidget ?? const CircularProgressIndicator.adaptive());
+              return Center(child:widget.loadingWidget ?? const CircularProgressIndicator.adaptive());
            }
           return Padding(
             padding: const EdgeInsets.all(8),
@@ -1199,7 +1177,7 @@ class _DropDownListViewState<T> extends State<_DropDownListView<T>> {
                               ? Center(
                                   child: Padding(
                                   padding: EdgeInsets.symmetric(vertical: 8.0),
-                                  child: widget.dropdownController.loadingWidget ?? CircularProgressIndicator.adaptive(),
+                                  child: widget.loadingWidget ?? CircularProgressIndicator.adaptive(),
                                 ))
                               : const SizedBox.shrink();
                       },

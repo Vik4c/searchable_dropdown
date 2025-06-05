@@ -11,12 +11,9 @@ enum SearchableDropdownStatus { initial, busy, error, loaded }
 class SearchableDropdownController<T> {
   SearchableDropdownController({
     SearchableDropdownMenuItem<T>? initialItem,
-    this.loadingWidget,
   }) {
     if (initialItem != null) selectedItem.value = initialItem;
   }
-
-  final Widget? loadingWidget;
 
   final GlobalKey key = GlobalKey();
   final ValueNotifier<List<SearchableDropdownMenuItem<T>>?> paginatedItemList =
